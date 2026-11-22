@@ -5,7 +5,7 @@ import {
   Activity, Archive, ArrowLeft, ArrowUpRight, BookOpen,
   Calculator, CheckCircle2, ChevronRight, Download, FileText,
   FolderOpen, GraduationCap, Laptop, Library, Menu, Newspaper,
-  Plus, Search, ShieldCheck, Sparkles, UploadCloud, X
+  Plus, Search, ShieldCheck, Sparkles, UploadCloud, X, Play
 } from "lucide-react";
 import { supabase } from "./supabase";
 import "./style.css";
@@ -53,6 +53,9 @@ function App() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showVideoForm, setShowVideoForm] = useState(false);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const inputRef = useRef(null);
 
   const admin = user?.id === OWNER_ID;
@@ -137,9 +140,11 @@ function App() {
     setUser(null);
     setActive(null);
     setActivePartial(null);
+    setShowVideoForm(false);
     showNotice("Sesión cerrada.");
   };
 
+  // SUBIR ARCHIVOS PDF
   const handleFiles = async (event) => {
     if (!active || !activePartial || !admin) return;
 
@@ -185,6 +190,8 @@ function App() {
           titulo: file.name,
           seccion: active.id,
           parcial: activePartial,
+          tipo: "pdf",
+          url: null,
           publicado: true,
           propietario: user.id
         });
@@ -211,7 +218,68 @@ function App() {
     }
   };
 
+  // AGREGAR ENLACES DE VIDEO: EXCLUSIVAMENTE EN APEs
+  const handleVideoLink = async () => {
+    if (!admin || active?.id !== "apes" || !activePartial) return;
+
+    const title = videoTitle.trim();
+    const url = videoUrl.trim();
+
+    if (!title || !url) {
+      showNotice("Ingresa el nombre y el enlace del video.");
+      return;
+    }
+
+    try {
+      const parsedUrl = new URL(url);
+
+      if (parsedUrl.protocol !== "https:") {
+        showNotice("El enlace debe comenzar con https://");
+        return;
+      }
+    } catch {
+      showNotice("Ingresa un enlace válido.");
+      return;
+    }
+
+    setLoading(true);
+
+    const { error } = await supabase
+      .from("documentos")
+      .insert({
+        bucket_id: BUCKET,
+        object_path: null,
+        titulo: title,
+        seccion: "apes",
+        parcial: activePartial,
+        tipo: "video",
+        url: url,
+        publicado: true,
+        propietario: user.id
+      });
+
+    setLoading(false);
+
+    if (error) {
+      showNotice("No se pudo guardar el enlace del video.");
+      return;
+    }
+
+    setVideoTitle("");
+    setVideoUrl("");
+    setShowVideoForm(false);
+
+    await loadDocuments();
+    showNotice("Enlace de video agregado correctamente.");
+  };
+
+  // DESCARGAR PDF
   const downloadFile = async (doc) => {
+    if (doc.tipo === "video") {
+      showNotice("Este elemento es un video, no un PDF.");
+      return;
+    }
+
     const { data, error } = await supabase.storage
       .from(BUCKET)
       .createSignedUrl(doc.object_path, 120);
@@ -232,6 +300,23 @@ function App() {
     link.remove();
   };
 
+  // ABRIR VIDEO
+  const openVideo = (doc) => {
+    try {
+      const url = new URL(doc.url);
+
+      if (url.protocol !== "https:") {
+        showNotice("El enlace del video no es seguro.");
+        return;
+      }
+
+      window.open(url.href, "_blank", "noopener,noreferrer");
+    } catch {
+      showNotice("El enlace del video no es válido.");
+    }
+  };
+
+  // PUBLICAR U OCULTAR
   const togglePublish = async (doc) => {
     const { error } = await supabase
       .from("documentos")
@@ -252,18 +337,21 @@ function App() {
     );
   };
 
+  // ELIMINAR PDF O ENLACE DE VIDEO
   const removeFile = async (doc) => {
     if (!window.confirm(`¿Eliminar "${doc.titulo}" definitivamente?`)) {
       return;
     }
 
-    const { error: storageError } = await supabase.storage
-      .from(BUCKET)
-      .remove([doc.object_path]);
+    if (doc.tipo !== "video" && doc.object_path) {
+      const { error: storageError } = await supabase.storage
+        .from(BUCKET)
+        .remove([doc.object_path]);
 
-    if (storageError) {
-      showNotice("No se pudo eliminar el archivo.");
-      return;
+      if (storageError) {
+        showNotice("No se pudo eliminar el archivo.");
+        return;
+      }
     }
 
     const { error: dbError } = await supabase
@@ -272,23 +360,25 @@ function App() {
       .eq("id", doc.id);
 
     if (dbError) {
-      showNotice("El archivo se quitó del almacenamiento, pero falló el registro.");
+      showNotice("No se pudo eliminar el registro.");
       await loadDocuments();
       return;
     }
 
     await loadDocuments();
-    showNotice("Documento eliminado.");
+    showNotice("Elemento eliminado.");
   };
 
   const openSection = (section) => {
     setActive(section);
     setActivePartial(null);
+    setShowVideoForm(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const openPartial = (partialId) => {
     setActivePartial(partialId);
+    setShowVideoForm(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -316,6 +406,7 @@ function App() {
           onClick={() => {
             setActive(null);
             setActivePartial(null);
+            setShowVideoForm(false);
           }}
         >
           <span className="brand-mark">
@@ -334,6 +425,7 @@ function App() {
             onClick={() => {
               setActive(null);
               setActivePartial(null);
+              setShowVideoForm(false);
             }}
           >
             Portafolio
@@ -344,6 +436,7 @@ function App() {
             onClick={() => {
               setActive(null);
               setActivePartial(null);
+              setShowVideoForm(false);
             }}
           >
             Acerca de
@@ -551,6 +644,7 @@ function App() {
             onClick={() => {
               setActive(null);
               setActivePartial(null);
+              setShowVideoForm(false);
             }}
           >
             <ArrowLeft size={17}/> Volver al portafolio
@@ -610,7 +704,7 @@ function App() {
                       <p>{partial.description}</p>
 
                       <span>
-                        {count} documentos · ABRIR CARPETA →
+                        {count} elementos · ABRIR CARPETA →
                       </span>
                     </button>
                   );
@@ -621,7 +715,10 @@ function App() {
             <>
               <button
                 className="back-button"
-                onClick={() => setActivePartial(null)}
+                onClick={() => {
+                  setActivePartial(null);
+                  setShowVideoForm(false);
+                }}
               >
                 <ArrowLeft size={17}/> Volver a los parciales
               </button>
@@ -640,14 +737,26 @@ function App() {
                 </div>
 
                 {admin && (
-                  <button
-                    className="primary-cta"
-                    onClick={() => inputRef.current?.click()}
-                    disabled={loading}
-                  >
-                    <UploadCloud size={17}/>
-                    {loading ? "Procesando..." : "Subir archivos PDF"}
-                  </button>
+                  <div className="upload-actions">
+                    <button
+                      className="primary-cta"
+                      onClick={() => inputRef.current?.click()}
+                      disabled={loading}
+                    >
+                      <UploadCloud size={17}/>
+                      {loading ? "Procesando..." : "Subir archivos PDF"}
+                    </button>
+
+                    {active.id === "apes" && (
+                      <button
+                        className="primary-cta video-button"
+                        onClick={() => setShowVideoForm(!showVideoForm)}
+                      >
+                        <Plus size={17}/>
+                        Agregar enlace de video
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -660,6 +769,47 @@ function App() {
                 onChange={handleFiles}
               />
 
+              {admin && active.id === "apes" && showVideoForm && (
+                <div className="video-form">
+                  <h3>Agregar video de APE</h3>
+
+                  <p>
+                    Escribe el nombre de la actividad y pega el enlace del video.
+                  </p>
+
+                  <input
+                    type="text"
+                    value={videoTitle}
+                    onChange={e => setVideoTitle(e.target.value)}
+                    placeholder="Nombre de la actividad"
+                  />
+
+                  <input
+                    type="url"
+                    value={videoUrl}
+                    onChange={e => setVideoUrl(e.target.value)}
+                    placeholder="Pega aquí el enlace de YouTube o Google Drive"
+                  />
+
+                  <div className="video-form-actions">
+                    <button
+                      className="primary-cta"
+                      onClick={handleVideoLink}
+                      disabled={loading}
+                    >
+                      {loading ? "Guardando..." : "Guardar video"}
+                    </button>
+
+                    <button
+                      className="publish-toggle"
+                      onClick={() => setShowVideoForm(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {!admin && (
                 <div className="notice-box">
                   <ShieldCheck size={18}/>
@@ -670,56 +820,72 @@ function App() {
               {admin && (
                 <div className="notice-box">
                   <ShieldCheck size={18}/>
-                  Modo administrador: puedes subir, publicar, ocultar y eliminar documentos.
+                  Modo administrador: puedes subir PDF, agregar videos, publicar, ocultar y eliminar elementos.
                 </div>
               )}
 
               <div className="document-list">
                 {activeDocuments.length ? (
-                  activeDocuments.map(doc => (
-                    <div className="document-row" key={doc.id}>
-                      <div className="file-icon">
-                        <FileText size={21}/>
-                      </div>
+                  activeDocuments.map(doc => {
+                    const isVideo = doc.tipo === "video";
 
-                      <div className="file-info">
-                        <b>{doc.titulo}</b>
+                    return (
+                      <div className="document-row" key={doc.id}>
+                        <div className="file-icon">
+                          {isVideo ? <Play size={21}/> : <FileText size={21}/>}
+                        </div>
 
-                        <span>
-                          {new Date(doc.creado_en).toLocaleDateString("es-EC")}
-                          {" · PDF · "}
-                          {doc.publicado ? "Publicado" : "Oculto"}
-                        </span>
-                      </div>
+                        <div className="file-info">
+                          <b>{doc.titulo}</b>
 
-                      <button
-                        className="icon-action"
-                        onClick={() => downloadFile(doc)}
-                        title="Descargar PDF"
-                      >
-                        <Download size={18}/>
-                      </button>
+                          <span>
+                            {new Date(doc.creado_en).toLocaleDateString("es-EC")}
+                            {" · "}
+                            {isVideo ? "VIDEO" : "PDF"}
+                            {" · "}
+                            {doc.publicado ? "Publicado" : "Oculto"}
+                          </span>
+                        </div>
 
-                      {admin && (
-                        <>
+                        {isVideo ? (
                           <button
-                            className="publish-toggle"
-                            onClick={() => togglePublish(doc)}
+                            className="icon-action"
+                            onClick={() => openVideo(doc)}
+                            title="Abrir video"
                           >
-                            {doc.publicado ? "Ocultar" : "Publicar"}
+                            <Play size={18}/>
                           </button>
-
+                        ) : (
                           <button
-                            className="icon-action danger"
-                            onClick={() => removeFile(doc)}
-                            title="Eliminar"
+                            className="icon-action"
+                            onClick={() => downloadFile(doc)}
+                            title="Descargar PDF"
                           >
-                            <X size={18}/>
+                            <Download size={18}/>
                           </button>
-                        </>
-                      )}
-                    </div>
-                  ))
+                        )}
+
+                        {admin && (
+                          <>
+                            <button
+                              className="publish-toggle"
+                              onClick={() => togglePublish(doc)}
+                            >
+                              {doc.publicado ? "Ocultar" : "Publicar"}
+                            </button>
+
+                            <button
+                              className="icon-action danger"
+                              onClick={() => removeFile(doc)}
+                              title="Eliminar"
+                            >
+                              <X size={18}/>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="empty-documents">
                     <div className="empty-file">
@@ -729,7 +895,7 @@ function App() {
                     <h3>Aún no hay documentos</h3>
 
                     <p>
-                      Los archivos que se agreguen a este parcial aparecerán aquí.
+                      Los archivos y enlaces que se agreguen a este parcial aparecerán aquí.
                     </p>
 
                     {admin && (
