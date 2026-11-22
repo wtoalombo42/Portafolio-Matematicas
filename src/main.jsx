@@ -25,8 +25,26 @@ const sections = [
   { id:"anexos", n:"09", title:"Anexos", subtitle:"Material complementario", icon:Archive, tag:"ARCHIVO", cover:"cover-annex", description:"Recursos adicionales y documentos de apoyo." }
 ];
 
+const partials = [
+  {
+    id: "primer",
+    number: "01",
+    title: "Primer parcial",
+    description: "Actividades y documentos del primer parcial.",
+    icon: BookOpen
+  },
+  {
+    id: "segundo",
+    number: "02",
+    title: "Segundo parcial",
+    description: "Actividades y documentos del segundo parcial.",
+    icon: GraduationCap
+  }
+];
+
 function App() {
   const [active, setActive] = useState(null);
+  const [activePartial, setActivePartial] = useState(null);
   const [query, setQuery] = useState("");
   const [user, setUser] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -54,6 +72,7 @@ function App() {
       showNotice("No se pudieron cargar los documentos.");
       return;
     }
+
     setDocuments(data || []);
   }, []);
 
@@ -78,7 +97,9 @@ function App() {
       .toLowerCase().includes(query.toLowerCase())
   ), [query]);
 
-  const totalFiles = documents.length;
+  const totalFiles = documents.filter(doc =>
+    admin || doc.publicado
+  ).length;
 
   const enterAdmin = async () => {
     if (!email.trim() || !password) {
@@ -87,10 +108,12 @@ function App() {
     }
 
     setLoading(true);
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password
     });
+
     setLoading(false);
 
     if (error) {
@@ -112,15 +135,19 @@ function App() {
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
+    setActive(null);
+    setActivePartial(null);
     showNotice("Sesión cerrada.");
   };
 
   const handleFiles = async (event) => {
-    if (!active || !admin) return;
+    if (!active || !activePartial || !admin) return;
 
     const selected = Array.from(event.target.files || []);
+
     const pdfs = selected.filter(file =>
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
     );
 
     if (!pdfs.length) {
@@ -134,7 +161,9 @@ function App() {
 
     for (const file of pdfs) {
       const safeName = file.name.replace(/[\\/]/g, "_");
-      const objectPath = `${user.id}/${active.id}/${crypto.randomUUID()}-${safeName}`;
+
+      const objectPath =
+        `${user.id}/${active.id}/${activePartial}/${crypto.randomUUID()}-${safeName}`;
 
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
@@ -155,12 +184,16 @@ function App() {
           object_path: objectPath,
           titulo: file.name,
           seccion: active.id,
+          parcial: activePartial,
           publicado: true,
           propietario: user.id
         });
 
       if (insertError) {
-        await supabase.storage.from(BUCKET).remove([objectPath]);
+        await supabase.storage
+          .from(BUCKET)
+          .remove([objectPath]);
+
         showNotice(`No se pudo registrar ${file.name}.`);
         continue;
       }
@@ -169,9 +202,13 @@ function App() {
     }
 
     await loadDocuments();
+
     setLoading(false);
     event.target.value = "";
-    if (uploaded) showNotice(`${uploaded} PDF(s) subido(s) correctamente.`);
+
+    if (uploaded) {
+      showNotice(`${uploaded} PDF(s) subido(s) correctamente.`);
+    }
   };
 
   const downloadFile = async (doc) => {
@@ -189,6 +226,7 @@ function App() {
     link.download = doc.titulo;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
+
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -206,11 +244,18 @@ function App() {
     }
 
     await loadDocuments();
-    showNotice(doc.publicado ? "Documento ocultado." : "Documento publicado.");
+
+    showNotice(
+      doc.publicado
+        ? "Documento ocultado."
+        : "Documento publicado."
+    );
   };
 
   const removeFile = async (doc) => {
-    if (!window.confirm(`¿Eliminar "${doc.titulo}" definitivamente?`)) return;
+    if (!window.confirm(`¿Eliminar "${doc.titulo}" definitivamente?`)) {
+      return;
+    }
 
     const { error: storageError } = await supabase.storage
       .from(BUCKET)
@@ -238,14 +283,26 @@ function App() {
 
   const openSection = (section) => {
     setActive(section);
+    setActivePartial(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const activeDocuments = active
+  const openPartial = (partialId) => {
+    setActivePartial(partialId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const activeDocuments = active && activePartial
     ? documents.filter(doc =>
-        doc.seccion === active.id && (admin || doc.publicado)
+        doc.seccion === active.id &&
+        doc.parcial === activePartial &&
+        (admin || doc.publicado)
       )
     : [];
+
+  const selectedPartial = partials.find(
+    partial => partial.id === activePartial
+  );
 
   return (
     <div className="app-shell">
@@ -253,18 +310,59 @@ function App() {
       <div className="ambient ambient-two" />
 
       <header className="topbar">
-        <a className="brand" href="#" onClick={() => setActive(null)}>
-          <span className="brand-mark"><Calculator size={22}/></span>
-          <span><b>MATH<span>SPACE</span></b><small>ACADEMIC PORTFOLIO</small></span>
+        <a
+          className="brand"
+          href="#"
+          onClick={() => {
+            setActive(null);
+            setActivePartial(null);
+          }}
+        >
+          <span className="brand-mark">
+            <Calculator size={22}/>
+          </span>
+
+          <span>
+            <b>MATH<span>SPACE</span></b>
+            <small>ACADEMIC PORTFOLIO</small>
+          </span>
         </a>
+
         <nav className="topnav">
-          <a href="#portfolio" onClick={() => setActive(null)}>Portafolio</a>
-          <a href="#about" onClick={() => setActive(null)}>Acerca de</a>
-          <button className="admin-button" onClick={() => admin ? logout() : setShowLogin(true)}>
-            <ShieldCheck size={16}/>{admin ? "Cerrar sesión" : "Acceso administrador"}
+          <a
+            href="#portfolio"
+            onClick={() => {
+              setActive(null);
+              setActivePartial(null);
+            }}
+          >
+            Portafolio
+          </a>
+
+          <a
+            href="#about"
+            onClick={() => {
+              setActive(null);
+              setActivePartial(null);
+            }}
+          >
+            Acerca de
+          </a>
+
+          <button
+            className="admin-button"
+            onClick={() => admin ? logout() : setShowLogin(true)}
+          >
+            <ShieldCheck size={16}/>
+            {admin ? "Cerrar sesión" : "Acceso administrador"}
           </button>
         </nav>
-        <button className="mobile-menu" onClick={() => setShowLogin(true)} aria-label="Abrir acceso">
+
+        <button
+          className="mobile-menu"
+          onClick={() => setShowLogin(true)}
+          aria-label="Abrir acceso"
+        >
           <Menu/>
         </button>
       </header>
@@ -273,188 +371,456 @@ function App() {
         <main>
           <section className="hero">
             <div className="hero-copy">
-              <div className="eyebrow"><span className="pulse-dot"/> PORTAFOLIO UNIVERSITARIO · 2026</div>
-              <h1>El conocimiento<br/>se construye con <em>lógica.</em></h1>
-              <p className="hero-lead">Un espacio digital para organizar, documentar y compartir mi recorrido académico en Matemáticas.</p>
-              <div className="hero-actions">
-                <a className="primary-cta" href="#portfolio">Explorar portafolio <ArrowUpRight size={17}/></a>
-                <span className="hero-note"><span className="tiny-line"/> Aprender · Resolver · Evolucionar</span>
+              <div className="eyebrow">
+                <span className="pulse-dot"/>
+                PORTAFOLIO UNIVERSITARIO · 2026
               </div>
+
+              <h1>
+                El conocimiento<br/>
+                se construye con <em>lógica.</em>
+              </h1>
+
+              <p className="hero-lead">
+                Un espacio digital para organizar, documentar y compartir
+                mi recorrido académico en Matemáticas.
+              </p>
+
+              <div className="hero-actions">
+                <a className="primary-cta" href="#portfolio">
+                  Explorar portafolio <ArrowUpRight size={17}/>
+                </a>
+
+                <span className="hero-note">
+                  <span className="tiny-line"/>
+                  Aprender · Resolver · Evolucionar
+                </span>
+              </div>
+
               <div className="hero-stats">
-                <div><b>09</b><span>ÁREAS ACADÉMICAS</span></div>
-                <div><b>{String(totalFiles).padStart(2,"0")}</b><span>DOCUMENTOS</span></div>
-                <div><b>∞</b><span>POSIBILIDADES</span></div>
+                <div>
+                  <b>09</b>
+                  <span>ÁREAS ACADÉMICAS</span>
+                </div>
+
+                <div>
+                  <b>{String(totalFiles).padStart(2,"0")}</b>
+                  <span>DOCUMENTOS</span>
+                </div>
+
+                <div>
+                  <b>∞</b>
+                  <span>POSIBILIDADES</span>
+                </div>
               </div>
             </div>
+
             <div className="hero-art">
-              <div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="orbit orbit-c"/>
-              <div className="math-core"><span>∑</span><small>f(x) = ∫</small></div>
+              <div className="orbit orbit-a"/>
+              <div className="orbit orbit-b"/>
+              <div className="orbit orbit-c"/>
+
+              <div className="math-core">
+                <span>∑</span>
+                <small>f(x) = ∫</small>
+              </div>
+
               <span className="formula formula-one">E = mc²</span>
               <span className="formula formula-two">π ≈ 3.1416</span>
               <span className="formula formula-three">lim x → ∞</span>
               <span className="formula formula-four">a² + b² = c²</span>
-              <div className="art-caption"><Sparkles size={14}/> MATHEMATICAL THINKING</div>
+
+              <div className="art-caption">
+                <Sparkles size={14}/> MATHEMATICAL THINKING
+              </div>
             </div>
           </section>
 
           <section className="portfolio-section" id="portfolio">
             <div className="section-heading">
               <div>
-                <div className="eyebrow">EXPLORA · ORGANIZA · APRENDE</div>
-                <h2>Mi espacio <em>académico</em></h2>
-                <p>Nueve espacios para reunir el trabajo de todo el período.</p>
+                <div className="eyebrow">
+                  EXPLORA · ORGANIZA · APRENDE
+                </div>
+
+                <h2>
+                  Mi espacio <em>académico</em>
+                </h2>
+
+                <p>
+                  Nueve espacios para reunir el trabajo de todo el período.
+                </p>
               </div>
+
               <div className="search-wrap">
                 <Search size={17}/>
-                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar una sección..."/>
+                <input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Buscar una sección..."
+                />
               </div>
             </div>
 
             <div className="folder-grid">
               {filtered.map(section => {
                 const Icon = section.icon;
+
                 const count = documents.filter(doc =>
-                  doc.seccion === section.id && (admin || doc.publicado)
+                  doc.seccion === section.id &&
+                  (admin || doc.publicado)
                 ).length;
 
                 return (
-                  <button className={`folder-card ${section.cover}`} key={section.id} onClick={() => openSection(section)}>
-                    <div className="card-top"><span className="card-number">{section.n} / 09</span><span className="card-tag">{section.tag}</span></div>
+                  <button
+                    className={`folder-card ${section.cover}`}
+                    key={section.id}
+                    onClick={() => openSection(section)}
+                  >
+                    <div className="card-top">
+                      <span className="card-number">
+                        {section.n} / 09
+                      </span>
+
+                      <span className="card-tag">
+                        {section.tag}
+                      </span>
+                    </div>
+
                     <div className="cover-art">
                       <div className="art-grid"/>
-                      <div className="art-symbol">{["∑","√","∫","π","∆","∞","∂","θ","Ω"][Number(section.n)-1]}</div>
+                      <div className="art-symbol">
+                        {["∑","√","∫","π","∆","∞","∂","θ","Ω"][Number(section.n)-1]}
+                      </div>
                       <Icon className="card-icon" size={22}/>
                     </div>
+
                     <div className="card-bottom">
-                      <div><h3>{section.title}</h3><p>{section.subtitle}</p></div>
-                      <span className="card-arrow"><ArrowUpRight size={18}/></span>
+                      <div>
+                        <h3>{section.title}</h3>
+                        <p>{section.subtitle}</p>
+                      </div>
+
+                      <span className="card-arrow">
+                        <ArrowUpRight size={18}/>
+                      </span>
                     </div>
+
                     <div className="card-foot">
                       <span>{count} documentos</span>
-                      <span>ABRIR <ChevronRight size={13}/></span>
+                      <span>
+                        ABRIR <ChevronRight size={13}/>
+                      </span>
                     </div>
                   </button>
                 );
               })}
             </div>
-            {filtered.length === 0 && <div className="empty-state">No encontramos secciones con ese nombre.</div>}
+
+            {filtered.length === 0 && (
+              <div className="empty-state">
+                No encontramos secciones con ese nombre.
+              </div>
+            )}
           </section>
 
           <section className="about-strip" id="about">
-            <div className="about-icon"><GraduationCap size={25}/></div>
+            <div className="about-icon">
+              <GraduationCap size={25}/>
+            </div>
+
             <div>
               <div className="eyebrow">SOBRE ESTE ESPACIO</div>
               <h3>Un registro de mi aprendizaje.</h3>
-              <p>Este portafolio reúne actividades, evaluaciones, consultas y materiales desarrollados durante mi formación universitaria.</p>
+              <p>
+                Este portafolio reúne actividades, evaluaciones, consultas
+                y materiales desarrollados durante mi formación universitaria.
+              </p>
             </div>
-            <div className="signature">W. Toalombo<span>ESTUDIANTE</span></div>
+
+            <div className="signature">
+              W. Toalombo
+              <span>ESTUDIANTE</span>
+            </div>
           </section>
         </main>
       ) : (
         <main className="detail-page">
-          <button className="back-button" onClick={() => setActive(null)}>
+          <button
+            className="back-button"
+            onClick={() => {
+              setActive(null);
+              setActivePartial(null);
+            }}
+          >
             <ArrowLeft size={17}/> Volver al portafolio
           </button>
 
           <div className={`detail-banner ${active.cover}`}>
             <div className="detail-banner-content">
-              <span className="eyebrow">{active.n} / 09 · {active.tag}</span>
+              <span className="eyebrow">
+                {active.n} / 09 · {active.tag}
+              </span>
+
               <h1>{active.title}</h1>
               <p>{active.description}</p>
             </div>
-            <div className="detail-glyph">{"∑√∫π∆∞∂θΩ"[Number(active.n)-1]}</div>
+
+            <div className="detail-glyph">
+              {"∑√∫π∆∞∂θΩ"[Number(active.n)-1]}
+            </div>
           </div>
 
-          <div className="files-heading">
-            <div>
-              <div className="eyebrow">BIBLIOTECA DE DOCUMENTOS</div>
-              <h2>Archivos de la sección</h2>
-              <p>Documentos asociados a {active.title.toLowerCase()}.</p>
-            </div>
-            {admin && (
-              <button className="primary-cta" onClick={() => inputRef.current?.click()} disabled={loading}>
-                <UploadCloud size={17}/> {loading ? "Procesando..." : "Subir archivos PDF"}
-              </button>
-            )}
-          </div>
-
-          <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple className="hidden-input" onChange={handleFiles}/>
-
-          {!admin && (
-            <div className="notice-box">
-              <ShieldCheck size={18}/> Documentos académicos disponibles para consulta y descarga.
-            </div>
-          )}
-
-          {admin && (
-            <div className="notice-box">
-              <ShieldCheck size={18}/> Modo administrador: puedes subir, publicar, ocultar y eliminar documentos.
-            </div>
-          )}
-
-          <div className="document-list">
-            {activeDocuments.length ? activeDocuments.map(doc => (
-              <div className="document-row" key={doc.id}>
-                <div className="file-icon"><FileText size={21}/></div>
-                <div className="file-info">
-                  <b>{doc.titulo}</b>
-                  <span>{new Date(doc.creado_en).toLocaleDateString("es-EC")} · PDF · {doc.publicado ? "Publicado" : "Oculto"}</span>
-                </div>
-                <button className="icon-action" onClick={() => downloadFile(doc)} title="Descargar PDF">
-                  <Download size={18}/>
-                </button>
-                {admin && (
-                  <>
-                    <button className="publish-toggle" onClick={() => togglePublish(doc)}>
-                      {doc.publicado ? "Ocultar" : "Publicar"}
-                    </button>
-                    <button className="icon-action danger" onClick={() => removeFile(doc)} title="Eliminar">
-                      <X size={18}/>
-                    </button>
-                  </>
-                )}
+          {!activePartial ? (
+            <section className="partial-section">
+              <div className="eyebrow">
+                ORGANIZACIÓN ACADÉMICA
               </div>
-            )) : (
-              <div className="empty-documents">
-                <div className="empty-file"><FolderOpen size={30}/></div>
-                <h3>Aún no hay documentos</h3>
-                <p>Los archivos que se agreguen a esta sección aparecerán aquí.</p>
+
+              <h2>Selecciona el parcial</h2>
+
+              <p>
+                Elige el período para consultar o subir tus documentos.
+              </p>
+
+              <div className="partial-grid">
+                {partials.map(partial => {
+                  const Icon = partial.icon;
+
+                  const count = documents.filter(doc =>
+                    doc.seccion === active.id &&
+                    doc.parcial === partial.id &&
+                    (admin || doc.publicado)
+                  ).length;
+
+                  return (
+                    <button
+                      className="partial-card"
+                      key={partial.id}
+                      onClick={() => openPartial(partial.id)}
+                    >
+                      <span className="partial-number">
+                        {partial.number}
+                      </span>
+
+                      <Icon size={30}/>
+
+                      <h3>{partial.title}</h3>
+
+                      <p>{partial.description}</p>
+
+                      <span>
+                        {count} documentos · ABRIR CARPETA →
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : (
+            <>
+              <button
+                className="back-button"
+                onClick={() => setActivePartial(null)}
+              >
+                <ArrowLeft size={17}/> Volver a los parciales
+              </button>
+
+              <div className="files-heading">
+                <div>
+                  <div className="eyebrow">
+                    BIBLIOTECA DE DOCUMENTOS · {selectedPartial?.number}
+                  </div>
+
+                  <h2>{selectedPartial?.title}</h2>
+
+                  <p>
+                    Archivos de {active.title.toLowerCase()} · {selectedPartial?.title}.
+                  </p>
+                </div>
+
                 {admin && (
-                  <button className="primary-cta" onClick={() => inputRef.current?.click()}>
-                    <Plus size={17}/> Agregar primer PDF
+                  <button
+                    className="primary-cta"
+                    onClick={() => inputRef.current?.click()}
+                    disabled={loading}
+                  >
+                    <UploadCloud size={17}/>
+                    {loading ? "Procesando..." : "Subir archivos PDF"}
                   </button>
                 )}
               </div>
-            )}
-          </div>
+
+              <input
+                ref={inputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                className="hidden-input"
+                onChange={handleFiles}
+              />
+
+              {!admin && (
+                <div className="notice-box">
+                  <ShieldCheck size={18}/>
+                  Documentos académicos disponibles para consulta y descarga.
+                </div>
+              )}
+
+              {admin && (
+                <div className="notice-box">
+                  <ShieldCheck size={18}/>
+                  Modo administrador: puedes subir, publicar, ocultar y eliminar documentos.
+                </div>
+              )}
+
+              <div className="document-list">
+                {activeDocuments.length ? (
+                  activeDocuments.map(doc => (
+                    <div className="document-row" key={doc.id}>
+                      <div className="file-icon">
+                        <FileText size={21}/>
+                      </div>
+
+                      <div className="file-info">
+                        <b>{doc.titulo}</b>
+
+                        <span>
+                          {new Date(doc.creado_en).toLocaleDateString("es-EC")}
+                          {" · PDF · "}
+                          {doc.publicado ? "Publicado" : "Oculto"}
+                        </span>
+                      </div>
+
+                      <button
+                        className="icon-action"
+                        onClick={() => downloadFile(doc)}
+                        title="Descargar PDF"
+                      >
+                        <Download size={18}/>
+                      </button>
+
+                      {admin && (
+                        <>
+                          <button
+                            className="publish-toggle"
+                            onClick={() => togglePublish(doc)}
+                          >
+                            {doc.publicado ? "Ocultar" : "Publicar"}
+                          </button>
+
+                          <button
+                            className="icon-action danger"
+                            onClick={() => removeFile(doc)}
+                            title="Eliminar"
+                          >
+                            <X size={18}/>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-documents">
+                    <div className="empty-file">
+                      <FolderOpen size={30}/>
+                    </div>
+
+                    <h3>Aún no hay documentos</h3>
+
+                    <p>
+                      Los archivos que se agreguen a este parcial aparecerán aquí.
+                    </p>
+
+                    {admin && (
+                      <button
+                        className="primary-cta"
+                        onClick={() => inputRef.current?.click()}
+                      >
+                        <Plus size={17}/> Agregar primer PDF
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </main>
       )}
 
       <footer className="footer">
-        <div className="footer-brand"><Calculator size={17}/> MATHSPACE</div>
+        <div className="footer-brand">
+          <Calculator size={17}/> MATHSPACE
+        </div>
+
         <span>PORTAFOLIO ACADÉMICO · MATEMÁTICAS</span>
         <span>WILMER TOALOMBO © 2026</span>
       </footer>
 
       {showLogin && (
-        <div className="modal-backdrop" onClick={() => setShowLogin(false)}>
-          <div className="login-modal" onClick={e => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowLogin(false)}><X size={18}/></button>
-            <div className="modal-symbol"><ShieldCheck size={25}/></div>
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowLogin(false)}
+        >
+          <div
+            className="login-modal"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              className="modal-close"
+              onClick={() => setShowLogin(false)}
+            >
+              <X size={18}/>
+            </button>
+
+            <div className="modal-symbol">
+              <ShieldCheck size={25}/>
+            </div>
+
             <div className="eyebrow">ZONA RESTRINGIDA</div>
             <h2>Acceso administrador</h2>
-            <p>Ingresa con tu cuenta privada para administrar los documentos.</p>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Correo electrónico"/>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Contraseña" onKeyDown={e => e.key === "Enter" && enterAdmin()}/>
-            <button className="primary-cta full" onClick={enterAdmin} disabled={loading}>
-              {loading ? "Ingresando..." : "Ingresar"} <ArrowUpRight size={16}/>
+
+            <p>
+              Ingresa con tu cuenta privada para administrar los documentos.
+            </p>
+
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Correo electrónico"
+            />
+
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Contraseña"
+              onKeyDown={e => e.key === "Enter" && enterAdmin()}
+            />
+
+            <button
+              className="primary-cta full"
+              onClick={enterAdmin}
+              disabled={loading}
+            >
+              {loading ? "Ingresando..." : "Ingresar"}
+              <ArrowUpRight size={16}/>
             </button>
-            <small>Acceso exclusivo del administrador del portafolio.</small>
+
+            <small>
+              Acceso exclusivo del administrador del portafolio.
+            </small>
           </div>
         </div>
       )}
 
-      {notice && <div className="toast"><CheckCircle2 size={17}/>{notice}</div>}
+      {notice && (
+        <div className="toast">
+          <CheckCircle2 size={17}/>
+          {notice}
+        </div>
+      )}
     </div>
   );
 }
