@@ -53,9 +53,16 @@ function App() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
   const [showVideoForm, setShowVideoForm] = useState(false);
   const [videoTitle, setVideoTitle] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+
+  // ESTADOS DEL VISOR PDF
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const inputRef = useRef(null);
 
   const admin = user?.id === OWNER_ID;
@@ -141,7 +148,15 @@ function App() {
     setActive(null);
     setActivePartial(null);
     setShowVideoForm(false);
+    closePdfViewer();
     showNotice("Sesión cerrada.");
+  };
+
+  // CERRAR VISOR PDF
+  const closePdfViewer = () => {
+    setPreviewDoc(null);
+    setPreviewUrl("");
+    setPreviewLoading(false);
   };
 
   // SUBIR ARCHIVOS PDF
@@ -165,7 +180,10 @@ function App() {
     let uploaded = 0;
 
     for (const file of pdfs) {
-      const safeName = file.name.replace(/[\\/]/g, "_");
+      const safeName = file.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\w.-]/g, "_");
 
       const objectPath =
         `${user.id}/${active.id}/${activePartial}/${crypto.randomUUID()}-${safeName}`;
@@ -178,7 +196,7 @@ function App() {
         });
 
       if (uploadError) {
-        showNotice(`Error al subir ${file.name}.`);
+        showNotice(`Error al subir ${file.name}: ${uploadError.message}`);
         continue;
       }
 
@@ -273,6 +291,30 @@ function App() {
     showNotice("Enlace de video agregado correctamente.");
   };
 
+  // VISUALIZAR PDF DENTRO DE MATHSPACE
+  const viewPdf = async (doc) => {
+    if (!doc.object_path) {
+      showNotice("No se encontró el archivo PDF.");
+      return;
+    }
+
+    setPreviewLoading(true);
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(doc.object_path, 3600);
+
+    setPreviewLoading(false);
+
+    if (error || !data?.signedUrl) {
+      showNotice("No se pudo abrir el documento. Verifica los permisos de almacenamiento.");
+      return;
+    }
+
+    setPreviewDoc(doc);
+    setPreviewUrl(data.signedUrl);
+  };
+
   // DESCARGAR PDF
   const downloadFile = async (doc) => {
     if (doc.tipo === "video") {
@@ -282,22 +324,16 @@ function App() {
 
     const { data, error } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(doc.object_path, 120);
+      .createSignedUrl(doc.object_path, 3600, {
+        download: doc.titulo
+      });
 
     if (error || !data?.signedUrl) {
       showNotice("No se pudo generar el enlace de descarga.");
       return;
     }
 
-    const link = document.createElement("a");
-    link.href = data.signedUrl;
-    link.download = doc.titulo;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
   // ABRIR VIDEO
@@ -365,6 +401,10 @@ function App() {
       return;
     }
 
+    if (previewDoc?.id === doc.id) {
+      closePdfViewer();
+    }
+
     await loadDocuments();
     showNotice("Elemento eliminado.");
   };
@@ -373,12 +413,14 @@ function App() {
     setActive(section);
     setActivePartial(null);
     setShowVideoForm(false);
+    closePdfViewer();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const openPartial = (partialId) => {
     setActivePartial(partialId);
     setShowVideoForm(false);
+    closePdfViewer();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -407,6 +449,7 @@ function App() {
             setActive(null);
             setActivePartial(null);
             setShowVideoForm(false);
+            closePdfViewer();
           }}
         >
           <span className="brand-mark">
@@ -426,6 +469,7 @@ function App() {
               setActive(null);
               setActivePartial(null);
               setShowVideoForm(false);
+              closePdfViewer();
             }}
           >
             Portafolio
@@ -437,6 +481,7 @@ function App() {
               setActive(null);
               setActivePartial(null);
               setShowVideoForm(false);
+              closePdfViewer();
             }}
           >
             Acerca de
@@ -645,6 +690,7 @@ function App() {
               setActive(null);
               setActivePartial(null);
               setShowVideoForm(false);
+              closePdfViewer();
             }}
           >
             <ArrowLeft size={17}/> Volver al portafolio
@@ -718,6 +764,7 @@ function App() {
                 onClick={() => {
                   setActivePartial(null);
                   setShowVideoForm(false);
+                  closePdfViewer();
                 }}
               >
                 <ArrowLeft size={17}/> Volver a los parciales
@@ -856,13 +903,24 @@ function App() {
                             <Play size={18}/>
                           </button>
                         ) : (
-                          <button
-                            className="icon-action"
-                            onClick={() => downloadFile(doc)}
-                            title="Descargar PDF"
-                          >
-                            <Download size={18}/>
-                          </button>
+                          <>
+                            <button
+                              className="icon-action"
+                              onClick={() => viewPdf(doc)}
+                              title="Ver PDF"
+                              disabled={previewLoading}
+                            >
+                              <BookOpen size={18}/>
+                            </button>
+
+                            <button
+                              className="icon-action"
+                              onClick={() => downloadFile(doc)}
+                              title="Descargar PDF"
+                            >
+                              <Download size={18}/>
+                            </button>
+                          </>
                         )}
 
                         {admin && (
@@ -922,6 +980,51 @@ function App() {
         <span>PORTAFOLIO ACADÉMICO · MATEMÁTICAS</span>
         <span>WILMER TOALOMBO © 2026</span>
       </footer>
+
+      {/* VISOR PDF INTEGRADO */}
+      {previewDoc && previewUrl && (
+        <div
+          className="pdf-viewer-backdrop"
+          onClick={closePdfViewer}
+        >
+          <div
+            className="pdf-viewer-modal"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="pdf-viewer-toolbar">
+              <div className="pdf-viewer-title">
+                <FileText size={20}/>
+                <div>
+                  <b>{previewDoc.titulo}</b>
+                  <span>VISOR DE DOCUMENTOS · MATHSPACE</span>
+                </div>
+              </div>
+
+              <div className="pdf-viewer-actions">
+                <button
+                  onClick={() => downloadFile(previewDoc)}
+                  title="Descargar PDF"
+                >
+                  <Download size={19}/>
+                </button>
+
+                <button
+                  onClick={closePdfViewer}
+                  title="Cerrar visor"
+                >
+                  <X size={21}/>
+                </button>
+              </div>
+            </div>
+
+            <iframe
+              className="pdf-viewer-frame"
+              src={previewUrl}
+              title={previewDoc.titulo}
+            />
+          </div>
+        </div>
+      )}
 
       {showLogin && (
         <div
